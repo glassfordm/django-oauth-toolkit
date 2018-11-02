@@ -500,12 +500,24 @@ class OAuth2Validator(RequestValidator):
                 access_token = AccessToken.objects.select_for_update().get(
                     pk=refresh_token_instance.access_token.pk
                 )
-                access_token.user = request.user
-                access_token.scope = token["scope"]
-                access_token.expires = expires
-                access_token.token = token["access_token"]
-                access_token.application = request.client
-                access_token.save()
+                with transaction.atomic():
+                    access_token = AccessToken(
+                        user=request.user,
+                        scope=token["scope"],
+                        expires=expires,
+                        token=token["access_token"],
+                        application=request.client,
+                        source_refresh_token=None  # See note below
+                    )
+                    # NOTE: the definition of `source_refresh_token` is
+                    # "If from a refresh, the consumed RefeshToken";
+                    # since we're reusing refresh tokens instead of consuming
+                    # them, I'm not setting it here. Also, setting it can
+                    # cause db integrity errors after multiple refreshes.
+                    access_token.save()
+
+                    refresh_token_instance.access_token = access_token
+                    refresh_token_instance.save()
 
             # else create fresh with access & refresh tokens
             else:
